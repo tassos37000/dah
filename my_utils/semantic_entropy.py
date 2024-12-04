@@ -5,8 +5,6 @@ import torch.nn.functional as F
 import numpy as np
 from config import DEVICE
 
-# device = "cuda" if torch.cuda.is_available() else "cpu"
-
 
 def gen_responses_probs(model, tokenizer, question, number_responses=10, temperature=1.0):
     """ Generates 10 responses with high temeperature
@@ -61,17 +59,18 @@ def gen_responses_probs(model, tokenizer, question, number_responses=10, tempera
 
 
 def is_entailment_transformer(model, tokenizer, premise, hypothesis, question=""):
-    """ Checks if two sentences have bidirectional entailment
+    """ Checks if two sentences have bidirectional entailment using a transformer-based model
     
     Parameters:
         model (AutoModelForSequenceClassification): The Sequence classification model
         tokenizer (AutoTokenizer): The tokenizer for the Sequence classification model
-        premise (string): The 
-        hypothesis (string): TODO desc
-        question (string):
+        premise (string): The first sentence to be evaluated
+        hypothesis (string): The second sentence to be evaluated for entailment
+        question (string): question (str, optional): The question context related to the sentences 
+                           (not used in this function, only for compatibility)
 
     Returns:
-        boolean: True if there is bidirectional entailment else False
+        boolean: Returns True if both sentences entail each other (bidirectional entailment), otherwise False
     """
 
     # premise -> hypothesis
@@ -92,8 +91,17 @@ def is_entailment_transformer(model, tokenizer, premise, hypothesis, question=""
 
 
 def is_entailment_llm(model, tokenizer, premise, hypothesis, question):
-    """
-    TODO desc
+    """Evaluates entailment between two sentences using a large language model (LLM) via a prompt-based approach
+
+    Parameters:
+        model (AutoModelForCausalLM): A causal language model for generating responses
+        tokenizer (AutoTokenizer): The tokenizer associated with the causal language model
+        premise (str): The first sentence to be evaluated
+        hypothesis (str): The second sentence to be evaluated for entailment
+        question (str): A related question that provides context for the evaluation
+
+    Returns:
+        bool: Returns True if the LLM determines that "entailment" exists, otherwise False.
     """
 
     prompt = (f"We are evaluating answers to the question {question}\n"
@@ -104,7 +112,7 @@ def is_entailment_llm(model, tokenizer, premise, hypothesis, question):
               f"Respond with entailment, contradiction, or neutral.")
     
     messages = [
-        {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
+        {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": prompt},
         ]
     text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -125,7 +133,7 @@ def cluster_responses(responses, llm_tokenizer, is_entailment, entail_model, ent
         is_entailment (function): The function that will be used to asses the enatilment
         entail_model (AutoModelForCausalLM): The Sequence classification model
         entail_tokenizer (AutoTokenizer): The tokenizer for the Sequence classification model
-        question (string): TODO desc
+        question (string): A question providing context for assessing the responses (if it is applicable)
 
     Returns:
         List: A list where each cluster is represented by another list with the index of the responses

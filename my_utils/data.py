@@ -1,29 +1,9 @@
 """Data Utilities."""
+
 import hashlib
 import datasets
+import os
 import random
-
-
-def sample_ds(dataset, n_samples, seed, name):
-    """ Selects random samples from a dataset
-    
-    Parameters:
-        dataset (Dataset): The dataset
-        n_samples (int): The number of samples
-        seed (int): The seed for random library
-        name (string): The name of the dataset
-
-    Returns:
-        Dataset: Returns a Dataset with size equal to the n_samples and name is saved in the .info.description
-    """
-
-    random.seed(seed)
-    random_indices = [random.randint(0, dataset.num_rows) for _ in range(n_samples)]
-    dataset = dataset.select(random_indices)
-    dataset.info.description = name
-    print("Dataset: ", name)
-    print(dataset, "\n")
-    return dataset
 
 
 def load_ds(dataset_name, seed):
@@ -84,3 +64,75 @@ def load_ds(dataset_name, seed):
         raise ValueError
 
     return train_dataset, validation_dataset
+
+
+def sample_ds(dataset, n_samples, seed, name):
+    """ Selects random samples from a dataset
+    
+    Parameters:
+        dataset (Dataset): The dataset
+        n_samples (int): The number of samples
+        seed (int): The seed for random library
+        name (string): The name of the dataset
+
+    Returns:
+        Dataset: Returns a Dataset with size equal to the n_samples and name is saved in the .info.description
+    """
+
+    random.seed(seed)
+    random_indices = [random.randint(0, dataset.num_rows) for _ in range(n_samples)]
+    dataset = dataset.select(random_indices)
+    dataset.info.description = name
+    print("Dataset: ", name)
+    print(dataset, "\n")
+    return dataset
+
+
+def load_results(base_path):
+    """Loads datasets organized by entailment models and their versions from a specified base directory.
+
+    Parameters:
+        base_path (str): The root directory containing the datasets. 
+                         It is expected to have a structure where each model has its own directory, and within each 
+                         model directory are subdirectories for different versions, which contain datasets.
+
+    Returns:
+        dict: A nested dictionary where the first-level keys are model names, the second-level keys are version names,
+              and the values are lists of dictionaries mapping dataset names to dataset objects.
+              Example structure:
+              {
+                  "model1": {
+                      "version1": [{"dataset1": dataset_object1}, {"dataset2": dataset_object2}],
+                      "version2": [{"dataset3": dataset_object3}],
+                  },
+                  "model2": { ... }
+              }
+    """
+     
+    datasets = {}
+
+    # Iterate over the entailment models (directories under base_path)
+    for model in os.listdir(base_path):
+        model_path = os.path.join(base_path, model)
+        if os.path.isdir(model_path):
+            datasets[model] = {}
+            
+            # Iterate over the versions
+            for version in os.listdir(model_path):
+                version_path = os.path.join(model_path, version)
+                if os.path.isdir(version_path):
+                    datasets[model][version] = []
+                    
+                    # Iterate over the datasets in each version
+                    for dataset_name in os.listdir(version_path):
+                        dataset_path = os.path.join(version_path, dataset_name)
+                        if os.path.exists(dataset_path):
+                            try:
+                                dataset_object = datasets.load_from_disk(dataset_path)
+                                datasets[model][version].append({dataset_name: dataset_object})
+                                print(f"Loaded {dataset_name} from {model}/{version}")
+                            except Exception as e:
+                                print(f"Failed to load {dataset_name} from {model}/{version}: {e}")
+                    print()
+
+    return datasets
