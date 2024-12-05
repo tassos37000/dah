@@ -109,19 +109,19 @@ def load_results(base_path):
               }
     """
      
-    datasets = {}
+    loaded_datasets = {}
 
     # Iterate over the entailment models (directories under base_path)
     for model in os.listdir(base_path):
         model_path = os.path.join(base_path, model)
         if os.path.isdir(model_path):
-            datasets[model] = {}
+            loaded_datasets[model] = {}
             
             # Iterate over the versions
             for version in os.listdir(model_path):
                 version_path = os.path.join(model_path, version)
                 if os.path.isdir(version_path):
-                    datasets[model][version] = []
+                    loaded_datasets[model][version] = []
                     
                     # Iterate over the datasets in each version
                     for dataset_name in os.listdir(version_path):
@@ -129,10 +129,10 @@ def load_results(base_path):
                         if os.path.exists(dataset_path):
                             try:
                                 dataset_object = datasets.load_from_disk(dataset_path)
-                                datasets[model][version].append({dataset_name: dataset_object})
+                                loaded_datasets[model][version].append({dataset_name: dataset_object})
                                 print(f"Loaded {dataset_name} from {model}/{version}")
                             except Exception as e:
                                 print(f"Failed to load {dataset_name} from {model}/{version}: {e}")
                     print()
 
-    return datasets
+    return loaded_datasets

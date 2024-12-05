@@ -3,7 +3,7 @@
 from torch.cuda import empty_cache
 from tqdm import tqdm
 from copy import deepcopy
-from my_utils.semantic_entropy import gen_responses_probs, is_entailment_transformer, is_entailment_llm, cluster_responses, calculate_sem_entr
+from my_utils.semantic_entropy import gen_responses_probs, cluster_responses, calculate_sem_entr
 from my_utils.metrics import assess_acc
 
 
@@ -17,7 +17,7 @@ def generate_answers(datasets, data_answers_path, llm_model, llm_tokenizer):
         llm_tokenizer (AutoTokenizer): The tokenizer associated with the language model
 
     Returns:
-        None: The results are directly saved to disk.
+        None: The results are directly saved to disk
     """
     
     for dataset in datasets:
@@ -49,22 +49,20 @@ def generate_answers(datasets, data_answers_path, llm_model, llm_tokenizer):
         dataset.save_to_disk(data_answers_path + dataset.info.description)  
 
 
-def generate_SE(datasets, data_entail_path, llm_tokenizer, entail_model, entail_tokenizer, llm_entail):
+def generate_SE(datasets, data_entail_path, llm_tokenizer, entail_model, entail_tokenizer, entail_function):
     """Computes Semantic Entropy (SE) and clusters responses for questions in multiple datasets
 
     Parameters:
         datasets (list): A list of datasets, where each dataset contains questions and previously generated answers
-        data_entail_path (str): The directory path where the updated datasets with SE and clusters will be saved.
+        data_entail_path (str): The directory path where the updated datasets with SE and clusters will be saved
         llm_tokenizer (AutoTokenizer): The tokenizer for decoding responses
         entail_model (AutoModelForSequenceClassification or AutoModelForCausalLM): The model used for entailment evaluation
         entail_tokenizer (AutoTokenizer): The tokenizer associated with the entailment model
-        llm_entail (bool): If True, uses llm for entailment otherwise, uses transformer
+        entail_function (function): Fuction that will be used to assess bidirectional entailment
 
     Returns:
-        None: The results are directly saved to disk.
+        None: The results are directly saved to disk
     """
-
-    is_entailment = is_entailment_llm if(llm_entail) else is_entailment_transformer
 
     for dataset in datasets:
         all_clusters = []
@@ -75,7 +73,7 @@ def generate_SE(datasets, data_entail_path, llm_tokenizer, entail_model, entail_
 
         for i in tqdm(range(len(dataset_copy))):
             # Calculate semantic entropy
-            clusters = cluster_responses(dataset_copy[i]["generated_answers"], llm_tokenizer, is_entailment, entail_model, entail_tokenizer, dataset_copy[i]["question"])
+            clusters = cluster_responses(dataset_copy[i]["generated_answers"], llm_tokenizer, entail_function, entail_model, entail_tokenizer, dataset_copy[i]["question"])
             empty_cache()
             sem_entr = calculate_sem_entr(clusters, dataset_copy[i]["generated_answers"]["sequences_probabilities"])
             empty_cache()

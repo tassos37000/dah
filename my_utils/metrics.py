@@ -107,7 +107,8 @@ def visualise_results(models_names, datasets_names, results):
         None
     """
 
-    x = np.arange(len(datasets_names))
+    spacing = 1.2  # Adjust this value to control the space between datasets
+    x = np.arange(0, len(datasets_names) * spacing, spacing)
     width = 0.2  # Bar width
 
     fig, ax = plt.subplots(figsize=(10, 6))

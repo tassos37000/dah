@@ -3,6 +3,7 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
+from numpy.linalg import norm
 from config import DEVICE
 
 
@@ -56,6 +57,51 @@ def gen_responses_probs(model, tokenizer, question, number_responses=10, tempera
     }
 
     return outputs
+
+
+def mean_pooling(model_output, attention_mask):
+    """
+    Performs mean pooling on token embeddings while considering the attention mask.
+    This ensures that padding tokens do not contribute to the resulting sentence embedding.
+
+    Parameters:
+        model_output (torch.Tensor): The output from the model's forward pass and the first element contains the token embeddings
+        attention_mask (torch.Tensor): A tensor of shape [batch_size, seq_length] indicating the attention mask
+
+    Returns:
+        torch.Tensor: A tensor of shape [batch_size, embedding_dim] representing the pooled sentence embeddings for each input sentence.
+    """
+
+    token_embeddings = model_output[0]
+    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+
+    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+
+
+def is_entailment_embeddings(model, tokenizer, premise, hypothesis, question=""):
+    """ Checks if two sentences have bidirectional entailment using a sentence embedding model
+    
+    Parameters:
+        model (AutoModel): The Sentence Embedding model
+        tokenizer (AutoTokenizer): The tokenizer for the Sentence Embedding model
+        premise (string): The first sentence to be evaluated
+        hypothesis (string): The second sentence to be evaluated for entailment
+        question (string): question (str, optional): The question context related to the sentences 
+                           (not used in this function, only for compatibility)
+
+    Returns:
+        boolean: Returns True if both sentences entail each other (bidirectional entailment), otherwise False
+    """
+
+    encoded_input = tokenizer([premise, hypothesis], padding=True, truncation=True, return_tensors='pt').to(DEVICE)
+    with torch.no_grad():
+        model_output = model(**encoded_input)
+
+    sentence_embeddings = mean_pooling(model_output, encoded_input['attention_mask']) # Perform pooling
+    sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1).detach().cpu() # Normalize embeddings
+    cosine = np.dot(sentence_embeddings[0], sentence_embeddings[1]) / (norm(sentence_embeddings[0]) * norm(sentence_embeddings[1]))
+    
+    return True if cosine >= 0.5 else False
 
 
 def is_entailment_transformer(model, tokenizer, premise, hypothesis, question=""):
