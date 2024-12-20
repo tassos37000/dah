@@ -4,7 +4,6 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from numpy.linalg import norm
-from config import DEVICE
 
 
 def gen_responses_probs(model, tokenizer, question, number_responses=10, temperature=1.0):
@@ -21,7 +20,7 @@ def gen_responses_probs(model, tokenizer, question, number_responses=10, tempera
         dict: The deafult dictionary returned from generate() with token and sequence probabilities
     """
 
-    input_ids = tokenizer(question, return_tensors="pt").to(DEVICE)
+    input_ids = tokenizer(question, return_tensors="pt").to(model.device)
     input_length = input_ids['input_ids'].shape[1]
 
     outputs_high_temp = model.generate(
@@ -93,7 +92,7 @@ def is_entailment_embeddings(model, tokenizer, premise, hypothesis, question="")
         boolean: Returns True if both sentences entail each other (bidirectional entailment), otherwise False
     """
 
-    encoded_input = tokenizer([premise, hypothesis], padding=True, truncation=True, return_tensors='pt').to(DEVICE)
+    encoded_input = tokenizer([premise, hypothesis], padding=True, truncation=True, return_tensors='pt').to(model.device)
     with torch.no_grad():
         model_output = model(**encoded_input)
 
@@ -120,14 +119,14 @@ def is_entailment_transformer(model, tokenizer, premise, hypothesis, question=""
     """
 
     # premise -> hypothesis
-    input_ids = tokenizer(premise, hypothesis, return_tensors="pt", truncation=True).to(DEVICE)
+    input_ids = tokenizer(premise, hypothesis, return_tensors="pt", truncation=True).to(model.device)
     outputs = model(**input_ids)
     logits = outputs.logits # Get the entailment scores
     entailment_prob = torch.softmax(logits, dim=1)
     label_pre_hypo = torch.argmax(entailment_prob, dim=1).item()
 
     # hypothesis -> premise
-    input_ids = tokenizer(hypothesis, premise, return_tensors="pt", truncation=True).to(DEVICE)
+    input_ids = tokenizer(hypothesis, premise, return_tensors="pt", truncation=True).to(model.device)
     outputs = model(**input_ids)
     logits = outputs.logits # Get the entailment scores
     entailment_prob = torch.softmax(logits, dim=1)
@@ -158,12 +157,11 @@ def is_entailment_llm(model, tokenizer, premise, hypothesis, question):
               f"Respond with entailment, contradiction, or neutral.")
     
     messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": prompt},
         ]
     text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    entail_input_ids = tokenizer([text], return_tensors="pt").to(DEVICE)
-    generated_ids = model.generate(**entail_input_ids, max_new_tokens=256)
+    entail_input_ids = tokenizer([text], return_tensors="pt").to(model.device)
+    generated_ids = model.generate(**entail_input_ids, max_new_tokens=256, pad_token_id = tokenizer.eos_token_id)
     generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(entail_input_ids.input_ids, generated_ids)    ]
     text_res = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
     
