@@ -67,20 +67,23 @@ def generate_SE(datasets, data_entail_path, llm_tokenizer, entail_model, entail_
     for dataset in datasets:
         all_clusters = []
         all_sem_entr = []
+        all_mem_alloc = []
         dataset_copy = deepcopy(dataset)
 
         print(f"\nGenerating Semantic Entropies for {dataset_copy.info.description} dataset...")
 
         for i in tqdm(range(len(dataset_copy))):
             # Calculate semantic entropy
-            clusters = cluster_responses(dataset_copy[i]["generated_answers"], llm_tokenizer, entail_function, entail_model, entail_tokenizer, dataset_copy[i]["question"])
+            clusters, memory = cluster_responses(dataset_copy[i]["generated_answers"], llm_tokenizer, entail_function, 
+                                                 entail_model, entail_tokenizer, question=dataset_copy[i]["question"])
             empty_cache()
             sem_entr = calculate_sem_entr(clusters, dataset_copy[i]["generated_answers"]["sequences_probabilities"])
-            empty_cache()
             all_clusters.append(clusters)
             all_sem_entr.append(sem_entr)
+            all_mem_alloc.append(memory)
 
         # Save results to dataset
         dataset_copy = dataset_copy.add_column("clusters", all_clusters)
         dataset_copy = dataset_copy.add_column("semantic_entropy", all_sem_entr)
+        dataset_copy = dataset_copy.add_column("memory_allocation", all_mem_alloc)
         dataset_copy.save_to_disk(data_entail_path + dataset_copy.info.description) 

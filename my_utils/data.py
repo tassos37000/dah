@@ -88,28 +88,33 @@ def sample_ds(dataset, n_samples, seed, name):
     return dataset
 
 
-def load_results(base_path):
+def load_results(base_path, type):
     """Loads datasets organized by entailment models and their versions from a specified base directory.
 
     Parameters:
         base_path (str): The root directory containing the datasets. 
                          It is expected to have a structure where each model has its own directory, and within each 
                          model directory are subdirectories for different versions, which contain datasets.
+        type (str): The type of entailment being evaluated (e.g., "LLM" for large language models or "Transformer")
 
     Returns:
-        dict: A nested dictionary where the first-level keys are model names, the second-level keys are version names,
-              and the values are lists of dictionaries mapping dataset names to dataset objects.
-              Example structure:
-              {
-                  "model1": {
-                      "version1": [{"dataset1": dataset_object1}, {"dataset2": dataset_object2}],
-                      "version2": [{"dataset3": dataset_object3}],
-                  },
-                  "model2": { ... }
-              }
+        tuple:
+            - loaded_datasets (dict): A nested dictionary where the first-level keys are model names, the second-level 
+              keys are version names, and the values are lists of dictionaries mapping dataset names to dataset objects.
+                Example structure:
+                {
+                    "model1": {
+                        "version1": [{"dataset1": dataset_object1}, {"dataset2": dataset_object2}],
+                        "version2": [{"dataset3": dataset_object3}],
+                    },
+                    "model2": { ... }
+                }
+            - names (list): A list of strings, where each string represents a model and its size 
+                            (e.g., "LLM Model1 Small")
     """
      
     loaded_datasets = {}
+    names = []
 
     # Iterate over the entailment models (directories under base_path)
     for model in os.listdir(base_path):
@@ -133,6 +138,7 @@ def load_results(base_path):
                                 print(f"Loaded {dataset_name} from {model}/{version}")
                             except Exception as e:
                                 print(f"Failed to load {dataset_name} from {model}/{version}: {e}")
+                    names.append(f"{type} {model.capitalize()} {version}")
                     print()
 
-    return loaded_datasets
+    return loaded_datasets, names

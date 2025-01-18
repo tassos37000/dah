@@ -25,7 +25,7 @@ def gen_responses_probs(model, tokenizer, question, number_responses=10, tempera
 
     outputs_high_temp = model.generate(
         **input_ids,
-        max_new_tokens=64,
+        max_new_tokens=128,
         return_dict_in_generate=True,
         output_scores=True,
         do_sample=True,
@@ -38,10 +38,12 @@ def gen_responses_probs(model, tokenizer, question, number_responses=10, tempera
     sequence_token_probabilities = []
     generated_answer_tokens = []
     for idx in range(number_responses):
-        generated_tokens = outputs_high_temp.sequences[idx, input_length:] # Only keep the generated tokens by slicing out the input question tokens
+        # Only keep the generated tokens by slicing out the input question tokens
+        generated_tokens = outputs_high_temp.sequences[idx, input_length:] 
         generated_answer_tokens.append(generated_tokens.cpu().tolist())
         
-        probabilities = [F.softmax(score, dim=-1) for score in outputs_high_temp.scores] # Calculate probabilities for each token in the generated response
+        # Calculate probabilities for each token in the generated response
+        probabilities = [F.softmax(score, dim=-1) for score in outputs_high_temp.scores] 
         token_probabilities = []
         for i, token_id in enumerate(generated_tokens):
             token_prob = probabilities[i][idx, token_id].item()  # [idx, token_id] for batch dimension
@@ -85,13 +87,14 @@ def is_entailment_embeddings(model, tokenizer, premise, hypothesis, question="")
         tokenizer (AutoTokenizer): The tokenizer for the Sentence Embedding model
         premise (string): The first sentence to be evaluated
         hypothesis (string): The second sentence to be evaluated for entailment
-        question (string): question (str, optional): The question context related to the sentences 
-                           (not used in this function, only for compatibility)
+        question (string): The question context related to the sentences (not used in this function, only for compatibility)
 
     Returns:
-        boolean: Returns True if both sentences entail each other (bidirectional entailment), otherwise False
+        tuple: (Returns True if both sentences entail each other (bidirectional entailment) otherwise False, memory allocation)
     """
 
+    mem_before = torch.cuda.memory_allocated()
+    
     encoded_input = tokenizer([premise, hypothesis], padding=True, truncation=True, return_tensors='pt').to(model.device)
     with torch.no_grad():
         model_output = model(**encoded_input)
@@ -99,8 +102,10 @@ def is_entailment_embeddings(model, tokenizer, premise, hypothesis, question="")
     sentence_embeddings = mean_pooling(model_output, encoded_input['attention_mask']) # Perform pooling
     sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1).detach().cpu() # Normalize embeddings
     cosine = np.dot(sentence_embeddings[0], sentence_embeddings[1]) / (norm(sentence_embeddings[0]) * norm(sentence_embeddings[1]))
+
+    mem_after = torch.cuda.memory_allocated()
     
-    return True if cosine >= 0.5 else False
+    return (True if cosine >= 0.5 else False), mem_after-mem_before
 
 
 def is_entailment_transformer(model, tokenizer, premise, hypothesis, question=""):
@@ -111,28 +116,31 @@ def is_entailment_transformer(model, tokenizer, premise, hypothesis, question=""
         tokenizer (AutoTokenizer): The tokenizer for the Sequence classification model
         premise (string): The first sentence to be evaluated
         hypothesis (string): The second sentence to be evaluated for entailment
-        question (string): question (str, optional): The question context related to the sentences 
-                           (not used in this function, only for compatibility)
+        question (string): The question context related to the sentences (not used in this function, only for compatibility)
 
     Returns:
-        boolean: Returns True if both sentences entail each other (bidirectional entailment), otherwise False
+        tuple: (Returns True if both sentences entail each other (bidirectional entailment) otherwise False, memory allocation)
     """
 
+    mem_before = torch.cuda.memory_allocated()
+
     # premise -> hypothesis
-    input_ids = tokenizer(premise, hypothesis, return_tensors="pt", truncation=True).to(model.device)
+    input_ids = tokenizer(premise, hypothesis, return_tensors="pt").to(model.device)
     outputs = model(**input_ids)
     logits = outputs.logits # Get the entailment scores
     entailment_prob = torch.softmax(logits, dim=1)
     label_pre_hypo = torch.argmax(entailment_prob, dim=1).item()
 
     # hypothesis -> premise
-    input_ids = tokenizer(hypothesis, premise, return_tensors="pt", truncation=True).to(model.device)
+    input_ids = tokenizer(hypothesis, premise, return_tensors="pt").to(model.device)
     outputs = model(**input_ids)
     logits = outputs.logits # Get the entailment scores
     entailment_prob = torch.softmax(logits, dim=1)
     label_hypo_pre = torch.argmax(entailment_prob, dim=1).item()
 
-    return (label_pre_hypo == 2) and (label_hypo_pre == 2)
+    mem_after = torch.cuda.memory_allocated()
+
+    return ((label_pre_hypo == 2) and (label_hypo_pre == 2)), mem_after-mem_before
 
 
 def is_entailment_llm(model, tokenizer, premise, hypothesis, question):
@@ -146,8 +154,10 @@ def is_entailment_llm(model, tokenizer, premise, hypothesis, question):
         question (str): A related question that provides context for the evaluation
 
     Returns:
-        bool: Returns True if the LLM determines that "entailment" exists, otherwise False.
+        tuple: (Returns True if the LLM determines that "entailment" exists otherwise False, memory allocation)
     """
+
+    mem_before = torch.cuda.memory_allocated()
 
     prompt = (f"We are evaluating answers to the question {question}\n"
               f"Here are two possible answers:\n"
@@ -162,13 +172,15 @@ def is_entailment_llm(model, tokenizer, premise, hypothesis, question):
     text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     entail_input_ids = tokenizer([text], return_tensors="pt").to(model.device)
     generated_ids = model.generate(**entail_input_ids, max_new_tokens=256, pad_token_id = tokenizer.eos_token_id)
-    generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(entail_input_ids.input_ids, generated_ids)    ]
+    generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(entail_input_ids.input_ids, generated_ids)]
     text_res = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+
+    mem_after = torch.cuda.memory_allocated()    
     
-    return True if "entailment" in text_res else False
+    return (True if "entailment" in text_res else False), mem_after-mem_before
 
 
-def cluster_responses(responses, llm_tokenizer, is_entailment, entail_model, entail_tokenizer, question=""):
+def cluster_responses(responses, llm_tokenizer, is_entailment, entail_model, entail_tokenizer, question):
     """ Create the clusters from the responses
     
     Parameters:
@@ -180,22 +192,28 @@ def cluster_responses(responses, llm_tokenizer, is_entailment, entail_model, ent
         question (string): A question providing context for assessing the responses (if it is applicable)
 
     Returns:
-        List: A list where each cluster is represented by another list with the index of the responses
+        tuple: (A list where each cluster is represented by another list with the index of the responses,
+                total memory allocation for the clustering process)
     """
 
     clusters = [[0]]
+    total_memory = 0
+    
     for i in range(1, len(responses['sequences'])):
         for c in clusters:
             response_text = llm_tokenizer.decode(responses['sequences'][i], skip_special_tokens=True)
-            cluster_text = llm_tokenizer.decode(responses['sequences'][c[0]], skip_special_tokens=True)
-            if is_entailment(entail_model, entail_tokenizer, response_text, cluster_text, question):
+            cluster_text = llm_tokenizer.decode(responses['sequences'][c[0]], skip_special_tokens=True)            
+            entails, memory = is_entailment(entail_model, entail_tokenizer, response_text, cluster_text, question=question)
+            total_memory += memory
+
+            if entails:
                 c.append(i)
                 break
             else:
                 clusters.append([i])
                 break  
     
-    return clusters
+    return clusters, total_memory
 
 
 def calculate_sem_entr(clusters, sequences_prob):

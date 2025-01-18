@@ -1,9 +1,7 @@
-"""Calculate and Visualise metrics"""
+"""Calculate metrics"""
 
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, f1_score
 
 
 def assess_acc(model, tokenizer, question, answers, response):
@@ -38,8 +36,8 @@ def calculate_auroc(datasets):
     """Computes the AUROC for each dataset
 
     Parameters:
-        datasets (list): A list of datasets, where each dataset contains labels (binary ground-truth) 
-                         and semantic entropy values for the responses
+        datasets (list): A list of datasets, where each dataset contains labels (binary ground-truth) and semantic 
+                         entropy values for the responses
 
     Returns:
         list: A list of AUROC scores, one for each dataset
@@ -54,9 +52,116 @@ def calculate_auroc(datasets):
     return auroc_list
 
 
-def auroc_entail_models(model_results, type):
-    """Computes AUROC scores for different entailment models and their respective sizes across datasets
+def calculate_rejection_accuracies(confidences, predictions, true_labels):
+    """Computes rejection accuracies for a range of rejection percentages.
 
+    Parameters:
+        confidences (array-like): A list or array of confidence scores associated with predictions
+        predictions (array-like): A list or array of predicted labels 
+        true_labels (array-like): A list or array of true labels corresponding to the predictions
+
+    Returns:
+        np.array: An array of accuracies corresponding to rejection percentages of 0%, 10%, ..., 100%. Each value 
+                  represents the accuracy of the remaining data after rejecting the specified percentage of least 
+                  confident predictions.
+    """
+
+    sorted_indices = np.argsort(-confidences)  # Sort by confidence descending
+    sorted_predictions = predictions[sorted_indices]
+    sorted_true_labels = true_labels[sorted_indices]
+    
+    accuracies = []
+    for reject_percent in np.linspace(0, 1, 11):  # Rejection percentages: 0%, 10%, ..., 100%
+        keep_count = int((1 - reject_percent) * len(confidences))
+        if keep_count > 0:
+            accuracy = np.mean(sorted_predictions[:keep_count] == sorted_true_labels[:keep_count])
+        else:
+            accuracy = 0  # No data left to compute accuracy
+        accuracies.append(accuracy)
+    return np.array(accuracies)
+
+
+def calculate_aurac(datasets):
+    """Computes the AURAC for each dataset
+
+    Parameters:
+        datasets (list): A list of datasets, where each dataset contains labels (binary ground-truth) and semantic 
+                         entropy values for the responses
+
+    Returns:
+        list: A list of AURAC scores, one for each dataset
+    """
+
+    aurac_list = []
+    rej_acc_list = []
+
+    for d in datasets:
+        rej_acc = calculate_rejection_accuracies(
+            np.array(d["semantic_entropy"]),
+            np.where(np.array(d["semantic_entropy"]) >= 0.5, 1, 0), 
+            1-np.array(d["labels"])
+        )
+        rejection_percentages = np.linspace(0, 100, 11)  # Rejection percentages in %
+        rej_acc_list.append(rej_acc[1:-1])
+        aurac = np.trapz(rej_acc, rejection_percentages) / 100
+        aurac_list.append(aurac)
+        print(f"{d.info.description:20} dataset: {aurac:8.4f}")
+
+    return (aurac_list, rej_acc_list)
+
+
+def calculate_f1(datasets):
+    """Computes the F1 scores for each dataset
+
+    Parameters:
+        datasets (list): A list of datasets, where each dataset contains labels (binary ground-truth) and semantic 
+                         entropy values for the responses
+
+    Returns:
+        list: A list of F1 scores, one for each dataset
+    """
+
+    f1_list = []
+
+    for d in datasets:
+        y_true = 1-np.array(d["labels"])
+        y_pred = np.where(np.array(d["semantic_entropy"]) >= 0.5, 1, 0)
+        f1 = f1_score(y_true, y_pred)
+        f1_list.append(f1)
+        print(f"{d.info.description:20} dataset: {f1:8.4f}")
+
+    return f1_list
+
+
+def calculate_mem_mean_std(datasets):
+    """Computes mean and standard deviation (std) of memmeory allocation for each dataset
+
+    Parameters:
+        datasets (list): A list of datasets, where each dataset contains a list with memeory allocation  
+                         during clustering
+
+    Returns:
+        tuple: (A list with the memoery means, A list with the memoery stds) one for each dataset
+    """
+
+    mem_means = []
+    mem_stds =[]
+
+    for d in datasets:
+        d_MB = np.array(d["memory_allocation"])/1e6 # Bytes -> MB
+        mean = np.mean(d_MB)
+        std = np.std(d_MB)
+        print(f"{d.info.description:10} |  Mean: {mean:8.3f}    Std: {std:7.3f}")
+        mem_means.append(mean)
+        mem_stds.append(std)
+
+    return (mem_means, mem_stds)
+
+
+def metric_entail_models(model_results, metric):
+    """Computes various performance metrics or other properties for different entailment models and their respective 
+       sizes across datasets.
+    
     Parameters:
         model_results (dict): A nested dictionary containing results for various models and their sizes
                               Structure example:
@@ -71,213 +176,41 @@ def auroc_entail_models(model_results, type):
                                   },
                                   ...
                               }
-        type (str): The type of entailment being evaluated (e.g., "LLM" for language models or "Transformer")
+        metric (str): The metric/propertie that will be calculated ('AUROC', 'AURAC', 'AURAC %', 'F1', 'SE', 'MEMORY')
 
     Returns:
-        tuple:
-            - models_names (list): A list of strings, where each string represents a model and its size (e.g., "LLM Model1 Small")
-            - results (list): A list of AUROC scores for each model and size combination, computed across datasets
+        results (list): A list with the results from the selected metric/propertie  for each model and size combination,
+                        computed across datasets
     """
 
-    models_names = []
     results = []
 
     for model in model_results.keys():
         for size in model_results[model].keys():
-            print(f"\nAUROC scores for {type} {model.capitalize()} {size}")
-            models_names.append(f"{type} {model.capitalize()} {size}")
             only_datasets = [list(item.values())[0] for item in model_results[model][size]]
-            results.append(calculate_auroc(only_datasets))
+
+            if metric == "AUROC":
+                print(f"\nAUROC scores for {model.capitalize()} {size}")
+                result = calculate_auroc(only_datasets)
+            elif metric == "AURAC":
+                print(f"\nAURAC scores for {model.capitalize()} {size}")
+                result = calculate_aurac(only_datasets)[0]
+            elif metric == "AURAC %":
+                print(f"\nAURAC % scores for {model.capitalize()} {size}")
+                result = calculate_aurac(only_datasets)[1]
+            elif metric == "F1":
+                print(f"\nF1 scores for {model.capitalize()} {size}")
+                result = calculate_f1(only_datasets)
+            elif metric == "SE":
+                results += [dataset["semantic_entropy"] for dataset in only_datasets]
+                continue
+            elif metric == "MEMORY":
+                print(f"\nMemory allocation in MB for {model.capitalize()} {size}")
+                result = calculate_mem_mean_std(only_datasets)
+            else:
+                print(f"Please specify one of the following Metrics: 'AUROC', 'AURAC', 'AURAC %', 'F1', 'SE', 'MEMORY'")
+                return
+            
+            results.append(result)
     
-    return models_names, results
-
-
-def extract_SE(model_results, type):
-    """Extracts the semantic entropy (SE) values from the results of multiple models and prepares the data for visualization
-
-    Parameters:
-        model_results (dict): A nested dictionary containing results for various models and their sizes
-                              Structure example:
-                              {
-                                  "model1": {
-                                      "0.5B": [{dataset_name: dataset_object}, ...],
-                                      "3.0B": [{dataset_name: dataset_object}, ...],
-                                  },
-                                  "model2": {
-                                      "14.0B": [{dataset_name: dataset_object}, ...],
-                                      "30.0B": [{dataset_name: dataset_object}, ...],
-                                  },
-                                  ...
-                              }
-        type (str): The type of entailment being evaluated (e.g., "LLM" for language models or "Transformer")
-
-    Returns:
-        tuple:
-            - models_names (list): A list of strings, where each string represents a model and its size (e.g., "LLM Model1 Small")
-            - results (list): A list of AUROC scores for each model and size combination, computed across datasets
-    """
-    models_names = []
-    results = []
-
-    for model in model_results.keys():
-        for size in model_results[model].keys():
-            models_names.append(f"{type} {model.capitalize()} {size}")
-            only_datasets = [list(item.values())[0] for item in model_results[model][size]]
-            results += [dataset["semantic_entropy"] for dataset in only_datasets]
-    
-    return models_names, results
-
-
-def visualise_auroc_results(models_names, datasets_names, results, colours):
-    """Creates a bar plot to visualize AUROC scores across different models and datasets
-
-    Parameters:
-        models_names (list): A list of model names corresponding to the results
-        datasets_names (list): A list of dataset names for which AUROC scores are computed
-        results (list): A nested list containing AUROC scores for each model and dataset
-        colours (dict): A dictionary mapping model names to their respective colors
-
-    Output:
-        Saves the plot as `results/figures/auroc_scores_plot.png`
-
-    Returns:
-        None
-    """
-
-    spacing = 1.6  # Adjust this value to control the space between datasets
-    x = np.arange(0, len(datasets_names) * spacing, spacing)
-    width = 0.2  # Bar width
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    for i, (model, result) in enumerate(zip(models_names, results)):
-        colour = colours.get(model, 'grey')
-        ax.bar(x + i * width, result, width, label=model, color=colour)
-
-    ax.set_xlabel("Datasets")
-    ax.set_ylabel("AUROC Score")
-    ax.set_title("AUROC Scores for Different Models and Datasets")
-    ax.set_xticks(x + width * (len(models_names) - 1) / 2)
-    ax.set_xticklabels(datasets_names)
-    ax.grid(True, linestyle=":", linewidth=0.5)
-    ax.legend(loc="upper left", title="Models", bbox_to_anchor=(1, 1))
-    ax.set_ylim(0, 1)
-
-    plt.tight_layout()
-    plt.savefig("results/figures/auroc_scores_plot.png")
-    plt.show()
-
-
-def visualise_SE_distribution(models_names, datasets_names, results, colours):
-    """Creates a grouped box plot to visualize the distribution of semantic entropy (SE) values for various models across datasets
-
-    Parameters:
-        models_names (list): A list of model names corresponding to the results
-        datasets_names (list): A list of dataset names for which AUROC scores are computed
-        results (list): A nested list containing AUROC scores for each model and dataset
-        colours (dict): A dictionary mapping model names to their respective colors
-
-    Output:
-        Saves the plot as `results/figures/SE_distribution.png`
-
-    Returns:
-        None
-    """
-
-    groups = len(datasets_names)
-    boxes_per_group = int(len(results)/groups)
-
-    positions = [] # Set positions for the boxes (manually group them)
-    for i in range(groups):
-        positions += [i * (boxes_per_group + 1) + j for j in range(1, boxes_per_group + 1)]
-
-    plt.figure(figsize=(16, 6))
-    unique_models = list(set(models_names))
-    unique_models.sort()
-
-    # Create the boxplot - plot one box at a time with the correct color
-    for i in range(groups):  # Loop through each dataset group
-        for j in range(boxes_per_group):  # Loop through boxes within the group
-            idx = i * boxes_per_group + j  # Calculate overall index
-            colour = colours[models_names[j]]  # Get the color for this model
-            plt.boxplot(
-                [results[idx]],  # Boxplot for this model's result
-                positions=[positions[idx]],  # Position for this box
-                patch_artist=True,
-                boxprops=dict(facecolor=colour, color=colour),
-                medianprops=dict(color="black"),
-                widths=0.5
-            )
-
-    plt.xticks([i * (boxes_per_group + 1) + (boxes_per_group / 2) for i in range(groups)], datasets_names)
-
-    legend_patches = [mpatches.Patch(color=colours[model], label=model) for model in unique_models]
-    plt.legend(handles=legend_patches, loc="upper left", title="Models", bbox_to_anchor=(1, 1)) # Place legend outside to the right
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
-    plt.subplots_adjust(right=0.7)  # Shrink the plot to make space for the legend
-    plt.title('Distribution of Semantic Entropy')
-    plt.xlabel('Datatsets')
-    plt.ylabel('Semantic Entropy')
-    plt.savefig('results/figures/SE_distribution.png', bbox_inches='tight')
-    plt.show()
-
-
-def visualise_SE_mean_std(models_names, datasets_names, results, colours):
-    """Visualizes the mean and standard deviation of semantic entropy (SE) values for different 
-        models and datasets using line plots with std bands
-
-    Parameters:
-        models_names (list): A list of model names corresponding to the results
-        datasets_names (list): A list of dataset names for which AUROC scores are computed
-        results (list): A nested list containing AUROC scores for each model and dataset
-        colours (dict): A dictionary mapping model names to their respective colors
-
-    Output:
-        Saves the plot as `results/figures/SE_mean_std.png`
-
-    Returns:
-        None
-    """
-
-    grouped_results = {dataset: {} for dataset in datasets_names}
-
-    index = 0
-    for dataset in datasets_names:
-        for model in models_names:
-            grouped_results[dataset][model] = results[index]
-            index += 1
-
-    means = []
-    stds = []
-    for dataset in datasets_names:
-        dataset_means = []
-        dataset_stds = []
-        for model in models_names:
-            model_results = grouped_results[dataset][model]
-            dataset_means.append(np.mean(model_results))
-            dataset_stds.append(np.std(model_results))
-        means.append(dataset_means)
-        stds.append(dataset_stds)
-
-    fig, ax = plt.subplots(figsize=(12, 6))
-    x = np.arange(len(datasets_names))  # Dataset positions
-
-    for i, model in enumerate(models_names):
-        mean_values = [means[j][i] for j in range(len(datasets_names))]
-        std_values = [stds[j][i] for j in range(len(datasets_names))]
-        ax.plot(x, mean_values, label=model, marker='o', linestyle='-', color=colours[model])
-        ax.fill_between(x, 
-                        [m - s for m, s in zip(mean_values, std_values)], 
-                        [m + s for m, s in zip(mean_values, std_values)], 
-                        color=colours[model], alpha=0.4)
-
-    ax.set_xlabel("Datasets")
-    ax.set_ylabel("Semantic Entropy (Mean ± Std)")
-    ax.set_title("Mean and Standard Deviation of SE for Models")
-    ax.set_xticks(x)
-    ax.set_xticklabels(datasets_names)
-    ax.grid(True, linestyle=":", linewidth=0.5)
-    ax.legend(loc="upper left", title="Models", bbox_to_anchor=(1, 1))
-
-    plt.tight_layout()
-    plt.savefig("results/figures/SE_mean_std.png")
-    plt.show()
+    return results
