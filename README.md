@@ -1,10 +1,10 @@
-# DAH
+# Detecting Hallucinations
 
 This repository is part of my thesis, titled **"Investigating Hallucinations in AI Text Generation Using Semantic Tools"**, where is presented  a refined framework for detecting hallucinations in language models.
 
 ## Project Description
 
-The project focuses on enhancing the framework for hallucination detection by introducing modifications in the entailment step. Specifically, we replace the Entailment LMM with a fine-tuned Transformer model for Natural Language Inference (NLI). This adjustment aims to improve the accuracy and reliability of hallucination detection in language models.
+The project focuses on enhancing the framework for hallucination detection by introducing modifications in the entailment step. Specifically, we replace the Entailment LLM with a fine-tuned Transformer model for Natural Language Inference (NLI). This adjustment aims to improve the accuracy and reliability of hallucination detection in language models.
 
 ![A diagram showing the steps of the refined framework. Step 2 is highlighted in which we change the LLM Entailment with Transformer Entailmnet.](readme_figures/proposed_framework.png)
 
